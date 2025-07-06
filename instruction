@@ -1,0 +1,8 @@
+required frameworks:
+flwr                         1.4.0 
+hydra-core                   1.3.2  
+python                       3.8
+ray                          1.11.1 
+
+promopt in the terminal:
+python main.py
