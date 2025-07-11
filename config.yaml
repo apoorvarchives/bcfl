@@ -1,0 +1,17 @@
+miner:
+  difficulty: "000"
+  h: 5
+  delta: 0.2
+  nd: 10
+  T_wait: 10
+
+training:
+  local_epochs: 1
+  batch_size: 20
+  lr: 0.01
+  momentum: 0.9
+
+system:
+  num_clients: 5
+  num_miners: 3
+  epochs: 3

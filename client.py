@@ -1,74 +1,38 @@
-
-from collections import OrderedDict
-from typing import Dict
-from flwr.common import NDArrays, Scalar
-
-from model import Net,train,test 
-
 import torch
-import flwr as fl 
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from model import CNNModel
+import time
 
-class FlowerClient(fl.client.NumPyClient):
-    def __init__(self,
-                 trainloader,
-                 valloader,
-                 num_classes)-> None :
-        super().__init__()
-        
-        self.trainloader= trainloader
-        self.valloader= valloader
-        self.model=Net(num_classes)
-        
-        self.device= torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-    def set_parameters(self,parameters):
-        
-        params_dict=zip(self.model.state_dict().keys(), parameters)
-        
-        state_dict= OrderedDict({k: torch.Tensor(v) for k,v in params_dict})
-        
-        self.model.load_state_dict(state_dict, strict=True)
-        
-    
-    def get_parameters(self, config: Dict [str, Scalar]):
-        
-        return [val.cpu().numpy() for _, val in self.model.state_dict().items()]
-    
-    
-    def fit(self,parameters,config):
-        
-        #copy parameters sent by the serve into client's local model
-        self.set_parameters(parameters)
-        
-        lr=config['lr']
-        momentum=config['momentum']
-        epochs=config['local_epochs']
-        
-        optim=torch.optim.SGD(self.model.parameters(),lr=lr,momentum=momentum)
-        
-        #do local training
-        train(self.model, self.trainloader,optim,epochs,self.device)
-        
-        return self.get_parameters({}), len(self.trainloader), {}
-    
-    def evaluate(self,parameters: NDArrays, config: Dict[str, Scalar]):
-        
-        #copy parameters sent by the server into client's local model
-        self.set_parameters(parameters)
-        
-        #do local evaluation
-        loss, accuracy = test(self.model, self.valloader, self.device)
-        
-        return loss, len(self.valloader), {"accuracy": accuracy}
-       
-def generate_client_fn(trainloaders, valloaders, num_classes):
-    def client_fn(cid: str):
-        return FlowerClient(
-            trainloader=trainloaders[int(cid)],
-            valloader=valloaders[int(cid)],
-            num_classes=num_classes,
-        )
+class Client:
+    def __init__(self, client_id, dataset):
+        self.client_id = client_id
+        self.model = CNNModel()
+        self.dataset = dataset
 
-    return client_fn
+    def train(self, local_epochs=1, batch_size=20, lr=0.01, momentum=0.9):
+        self.model.train()
+        loader = DataLoader(self.dataset, batch_size=batch_size, shuffle=True)
+        optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=momentum)
+        loss_fn = torch.nn.CrossEntropyLoss()
 
-    
+        start = time.time()
+        for _ in range(local_epochs):
+            for x, y in loader:
+                optimizer.zero_grad()
+                output = self.model(x)
+                loss = loss_fn(output, y)
+                loss.backward()
+                optimizer.step()
+        end = time.time()
+
+        weights = [p.data.tolist() for p in self.model.parameters()]
+        print(f"Client {self.client_id} Weights Sample: {str(weights[0][:2])}")
+
+        update = {
+            'client_id': self.client_id,
+            'weights': weights,
+            'gradients': [],
+            'T_local': end - start
+        }
+        return update
