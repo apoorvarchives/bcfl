@@ -1,54 +1,86 @@
-from dataset import load_dataset, split_dataset
 from client import Client
 from miner import Miner
-from network import broadcast_update, broadcast_block
+from server import Server
+from config import Config
+from dataset import load_datasets
+from model import evaluate
 import random
-import time
-import yaml
+from multiprocessing import Process, Queue
+import matplotlib.pyplot as plt
 
-with open("config.yaml", "r") as f:
-    config = yaml.safe_load(f)
+# Worker function to mine block in parallel
+def mine_worker(miner, prev_hash, queue):
+    block = miner.mine_block(prev_hash)
+    queue.put(block)
 
-training_cfg = config['training']
-miner_cfg = config['miner']
-system_cfg = config['system']
+if __name__ == '__main__':
+    config = Config()
+    train_loaders, test_loader = load_datasets(config)
 
-NUM_CLIENTS = system_cfg['num_clients']
-NUM_MINERS = system_cfg['num_miners']
-EPOCHS = system_cfg['epochs']
+    clients = [Client(i, train_loaders[i], config) for i in range(config.num_clients)]
+    miners = [Miner(i, config) for i in range(config.num_miners)]
+    server = Server(config)
 
-dataset = load_dataset()
-partitions = split_dataset(dataset, NUM_CLIENTS)
-clients = [Client(i, partitions[i]) for i in range(NUM_CLIENTS)]
-miners = [Miner(i,
-                difficulty=miner_cfg['difficulty'],
-                h=miner_cfg['h'],
-                delta=miner_cfg['delta'],
-                nd=miner_cfg['nd'],
-                T_wait=miner_cfg['T_wait']) for i in range(NUM_MINERS)]
+    test_accuracies = []
 
-for epoch in range(EPOCHS):
-    print(f"\n====================== EPOCH {epoch+1} ======================")
-    for client in clients:
-        update = client.train(
-            local_epochs=training_cfg['local_epochs'],
-            batch_size=training_cfg['batch_size'],
-            lr=training_cfg['lr'],
-            momentum=training_cfg['momentum']
-        )
-        assigned_miner = random.choice([m for m in miners if m.miner_id != client.client_id % NUM_MINERS])
-        print(f"Client {client.client_id} sends update to Miner {assigned_miner.miner_id}")
-        assigned_miner.receive_update(update)
-        broadcast_update(miners, update)
+    for epoch in range(config.epochs):
+        print(f"\n====================== EPOCH {epoch + 1} ======================")
 
-    time.sleep(1)
+        # STEP 1-2: Clients train locally and upload to random miners
+        miner_assignments = {m.id: [] for m in miners}
+        for client in clients:
+            selected_miner = random.choice(miners)
+            update, comp_time, sample_count = client.train()
+            print(f"[Client {client.id}] ➜ Miner {selected_miner.id} | samples: {sample_count} | time: {comp_time}s")
+            miner_assignments[selected_miner.id].append((client.id, update, comp_time, sample_count))
+            selected_miner.receive_update(client.id, update, comp_time, sample_count)
 
-    mined = False
-    for miner in miners:
-        if miner.is_ready_to_mine() and not mined:
-            block = miner.mine_block()
-            success = broadcast_block(miners, block)
-            if not success:
-                print("Fork detected! Restarting epoch...")
-            mined = True
-            break
+        # STEP 3: Miners cross-verify
+        for miner in miners:
+            miner.cross_verify(miners)
+
+        # STEP 4-5: Parallel PoW mining using multiprocessing
+        queue = Queue()
+        processes = []
+
+        for miner in miners:
+            p = Process(target=mine_worker, args=(miner, server.chain[-1].hash, queue))
+            p.start()
+            processes.append(p)
+
+        blocks = [queue.get() for _ in miners]
+        for p in processes:
+            p.join()
+
+        # Select block with earliest timestamp
+        blocks.sort(key=lambda b: b.timestamp)
+        successful_block = blocks[0]
+        print(f"[Server] Miner {successful_block.miner_id} wins the fork and broadcasts block.")
+
+        # STEP 6: Devices download the block
+        for client in clients:
+            client.update_global_model(successful_block)
+
+        server.add_block(successful_block)
+
+        # Evaluate and print accuracy
+        global_model_state = successful_block.model_updates[0][1].copy()
+        for key in global_model_state:
+            global_model_state[key] = sum(update[1][key] * update[3] for update in successful_block.model_updates) / sum(update[3] for update in successful_block.model_updates)
+
+        acc = evaluate(global_model_state, test_loader, config)
+        print(f"[Eval] Global Model Accuracy after Epoch {epoch + 1}: {acc:.2f}%")
+        test_accuracies.append(acc)
+
+    # Save chain to file
+    server.save_chain_to_file("chain.json")
+    print("\n[✓] BlockFL Training Complete and chain saved to chain.json")
+
+    # Plot accuracy
+    plt.plot(range(1, config.epochs + 1), test_accuracies, marker='o')
+    plt.xlabel("Epoch")
+    plt.ylabel("Test Accuracy (%)")
+    plt.title("Global Model Accuracy per Epoch")
+    plt.grid(True)
+    plt.savefig("accuracy_plot.png")
+    plt.show()

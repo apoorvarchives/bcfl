@@ -1,0 +1,67 @@
+[
+    {
+        "miner_id": -1,
+        "timestamp": 1752403663.962682,
+        "nonce": 0,
+        "hash": null,
+        "previous_hash": "0",
+        "num_updates": 0,
+        "clients": []
+    },
+    {
+        "miner_id": 1,
+        "timestamp": 1752403687.355295,
+        "nonce": 182,
+        "hash": "0003220030b351fece737d10d5e021ebff6f22388c42df4508d23cad998d81bf",
+        "previous_hash": null,
+        "num_updates": 5,
+        "clients": [
+            0,
+            1,
+            3,
+            4,
+            2
+        ]
+    },
+    {
+        "miner_id": 0,
+        "timestamp": 1752403701.4157948,
+        "nonce": 316,
+        "hash": "0002dc8fb88bd2844ce4066a6b2c52d28719d4b0f80490cd402a578203ef37ab",
+        "previous_hash": "0003220030b351fece737d10d5e021ebff6f22388c42df4508d23cad998d81bf",
+        "num_updates": 9,
+        "clients": [
+            2,
+            0,
+            1,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4
+        ]
+    },
+    {
+        "miner_id": 0,
+        "timestamp": 1752403725.742539,
+        "nonce": 3289,
+        "hash": "00096768b9d3e86519fc12a763aedb29cba43dfc1932cf869cb82f6b3ccd44d3",
+        "previous_hash": "0002dc8fb88bd2844ce4066a6b2c52d28719d4b0f80490cd402a578203ef37ab",
+        "num_updates": 12,
+        "clients": [
+            2,
+            0,
+            1,
+            3,
+            4,
+            1,
+            2,
+            3,
+            4,
+            1,
+            2,
+            4
+        ]
+    }
+]

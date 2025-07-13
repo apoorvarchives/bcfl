@@ -1,38 +1,32 @@
-import torch
-import torch.optim as optim
-from torch.utils.data import DataLoader
-from model import CNNModel
+import copy
 import time
+from model import initialize_model, aggregate_updates
 
 class Client:
-    def __init__(self, client_id, dataset):
-        self.client_id = client_id
-        self.model = CNNModel()
-        self.dataset = dataset
+    def __init__(self, client_id, train_loader, config):
+        self.id = client_id
+        self.train_loader = train_loader
+        self.config = config
+        self.local_model = initialize_model()
 
-    def train(self, local_epochs=1, batch_size=20, lr=0.01, momentum=0.9):
-        self.model.train()
-        loader = DataLoader(self.dataset, batch_size=batch_size, shuffle=True)
-        optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=momentum)
-        loss_fn = torch.nn.CrossEntropyLoss()
+    def train(self):
+        optimizer = self.config.optimizer(self.local_model.parameters(), lr=self.config.lr, momentum=self.config.momentum)
+        self.local_model.train()
 
         start = time.time()
-        for _ in range(local_epochs):
-            for x, y in loader:
+        for _ in range(self.config.local_epochs):
+            for data, target in self.train_loader:
                 optimizer.zero_grad()
-                output = self.model(x)
-                loss = loss_fn(output, y)
+                output = self.local_model(data)
+                loss = self.config.loss_fn(output, target)
                 loss.backward()
                 optimizer.step()
         end = time.time()
 
-        weights = [p.data.tolist() for p in self.model.parameters()]
-        print(f"Client {self.client_id} Weights Sample: {str(weights[0][:2])}")
+        print(f"[Client {self.id}] Trained locally in {round(end - start, 2)}s")
+        return self.local_model.state_dict(), round(end - start, 2), len(self.train_loader.dataset)
 
-        update = {
-            'client_id': self.client_id,
-            'weights': weights,
-            'gradients': [],
-            'T_local': end - start
-        }
-        return update
+    def update_global_model(self, block):
+        print(f"[Client {self.id}] Updating global model using block from Miner {block.miner_id}")
+        self.local_model.load_state_dict(aggregate_updates(block.model_updates))
+

@@ -1,75 +1,51 @@
-from block import Block
+# --------------------------- miner.py ---------------------------
 import time
-import numpy as np
+import hashlib
+from block import Block
 
 class Miner:
-    def __init__(self, miner_id, difficulty='000', h=5, delta=0.2, nd=10, T_wait=10):
-        self.miner_id = miner_id
-        self.candidate_block = []
-        self.blockchain = []
-        self.difficulty = difficulty
-        self.h = h
-        self.delta = delta
-        self.nd = nd
-        self.T_wait = T_wait
-        self.first_update_time = None
+    def __init__(self, miner_id, config):
+        self.id = miner_id
+        self.difficulty = config.difficulty
+        self.received_updates = []
+        self.h = config.h
+        self.delta = config.delta
+        self.nd = config.nd
+        self.T_wait = config.T_wait
 
-    def verify_update(self, update):
-        print(f"Miner {self.miner_id} verifying update from Client {update['client_id']}")
-        return True
+    def receive_update(self, client_id, model_update, comp_time, sample_count):
+        self.received_updates.append((client_id, model_update, comp_time, sample_count))
 
-    def receive_update(self, update):
-        if not self.first_update_time:
-            self.first_update_time = time.time()
-        if self.verify_update(update):
-            print(f"Miner {self.miner_id} added update from Client {update['client_id']} to candidate block.")
-            self.candidate_block.append(update)
-            print(f"Current Candidate Block at Miner {self.miner_id}:")
-            for u in self.candidate_block:
-                print(f"  Client {u['client_id']}, T_local: {u['T_local']:.2f}s")
+    def cross_verify(self, all_miners):
+        known_clients = set(update[0] for update in self.received_updates)
+        for miner in all_miners:
+            if miner.id != self.id:
+                for update in miner.received_updates:
+                    client_id = update[0]
+                    if client_id not in known_clients:
+                        self.received_updates.append(update)
+                        known_clients.add(client_id)
+        print(f"[Miner {self.id}] Verified {len(self.received_updates)} updates")
 
-    def is_ready_to_mine(self):
-        if len(self.candidate_block) >= self.h + int(self.delta * self.nd):
-            print(f"Miner {self.miner_id} candidate block size threshold reached.")
-            return True
-        if self.first_update_time and (time.time() - self.first_update_time > self.T_wait):
-            print(f"Miner {self.miner_id} candidate block timeout reached.")
-            return True
-        return False
+    def mine_block(self, prev_hash):
+        required_size = int(self.h + self.delta * self.nd)
+        print(f"[Miner {self.id}] Waiting to collect {required_size} updates or until timeout {self.T_wait}s")
 
-    def aggregate_model(self):
-        print(f"Miner {self.miner_id} aggregating global model from block updates...")
-        num_updates = len(self.candidate_block)
-        if num_updates == 0:
-            return []
+        start_time = time.time()
+        while len(self.received_updates) < required_size:
+            if time.time() - start_time >= self.T_wait:
+                print(f"[Miner {self.id}] Timeout reached with {len(self.received_updates)} updates. Proceeding to PoW...")
+                break
+            time.sleep(0.1)  # brief sleep to simulate waiting
 
-        agg_weights = None
-        for update in self.candidate_block:
-            weights = update['weights']
-            weights_tensor = [np.array(w) for w in weights]
-            if agg_weights is None:
-                agg_weights = weights_tensor
-            else:
-                for i in range(len(agg_weights)):
-                    agg_weights[i] += weights_tensor[i]
-
-        agg_weights = [w / num_updates for w in agg_weights]
-        print(f"Global model weights sample: {agg_weights[0][:2]}")
-        return agg_weights
-
-    def mine_block(self):
-        index = len(self.blockchain)
-        prev_hash = self.blockchain[-1].hash if self.blockchain else '0'*64
-        block = Block(index, prev_hash, self.candidate_block)
-
-        print(f"Miner {self.miner_id} started mining Block {index}...")
-        while not block.hash.startswith(self.difficulty):
-            block.nonce += 1
-            block.hash = block.compute_hash()
-
-        print(f"Miner {self.miner_id} mined Block {index} with hash {block.hash}")
-        self.blockchain.append(block)
-        self.aggregate_model()
-        self.candidate_block = []
-        self.first_update_time = None
-        return block
+        print(f"[Miner {self.id}] Starting PoW with {len(self.received_updates)} updates...")
+        nonce = 0
+        while True:
+            timestamp = time.time()
+            block = Block(self.id, self.received_updates, prev_hash, nonce, timestamp)
+            block_hash = block.compute_hash()
+            if block_hash.startswith(self.difficulty):
+                block.hash = block_hash
+                print(f"[Miner {self.id}] Found valid block with nonce {nonce} at {block.hash}")
+                return block
+            nonce += 1
