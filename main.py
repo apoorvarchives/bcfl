@@ -1,3 +1,4 @@
+#main.py
 from client import Client
 from miner import Miner
 from server import Server
