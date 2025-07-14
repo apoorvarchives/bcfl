@@ -1,4 +1,4 @@
-# --------------------------- miner.py ---------------------------
+# --------------------------- miner.py -----------------------
 import time
 import hashlib
 from block import Block
