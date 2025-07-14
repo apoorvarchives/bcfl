@@ -1,4 +1,4 @@
-# network.py
+# network.py  
 # Optional placeholder for future enhancements (P2P comms, delays, etc.)
 class Network:
     def __init__(self, num_clients, num_miners):
